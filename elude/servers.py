@@ -1,7 +1,7 @@
 import asyncio
 from elude import shutdown, config
 from elude.proxy import ProxyRegistry
-from elude.fetcher import FetchTaskTracker
+#from elude.fetcher import FetchTaskTracker
 import aiozmq
 import zmq
 
@@ -43,11 +43,11 @@ def zmq_serve(task_tracker):
 
 if __name__ == '__main__':
     proxy_registry = ProxyRegistry()
-    tracker = FetchTaskTracker(proxy_registry, config.FETCHER_GLOBAL_CONCURRENT_CONN)
+    #tracker = FetchTaskTracker(proxy_registry, config.FETCHER_GLOBAL_CONCURRENT_CONN)
     coros = [proxy_registry.start_getting_proxies()] # [ProxyRegistry().start_getting_proxies()]
 
-    if config.SERVER_ZEROMQ_ENABLE:
-        coros.append(zmq_serve(tracker))
+    #if config.SERVER_ZEROMQ_ENABLE:
+    #    coros.append(zmq_serve(tracker))
 
     loop = asyncio.get_event_loop()
     try:
