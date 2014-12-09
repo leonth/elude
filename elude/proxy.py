@@ -9,6 +9,7 @@ from pandas.io.html import read_html
 from elude import config, wait_for_shutdown
 
 logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 logging.getLogger('asyncio').setLevel(logging.CRITICAL)  # tone down asyncio debug messages
 
 
@@ -83,12 +84,12 @@ class ProxyRegistry(object):
                     break  # This proxy is malignant.
 
             # Healthy state
-            print('%s is healthy' % proxy.id)
+            logger.debug('%s is healthy' % proxy.id)
             while True:
                 yield from asyncio.sleep(0)
                 _, request_obj = yield from self.request_queue.get()
                 yield from asyncio.sleep(0)
-                print('received request: %s' % str(request_obj))
+                logger.debug('received request: %s' % str(request_obj))
                 smooth_request = yield from self.execute_request(request_obj, proxy)
                 if not smooth_request:
                     # This means that the proxy is somehow faulty. Return back the task to the queue and go back to unhealthy state.
@@ -103,16 +104,14 @@ class ProxyRegistry(object):
         Returns False if error is suspected due to proxy, True otherwise.
         See http://www.jsonrpc.org/specification for specs of the Request and Response objects."""
         rid = request_obj.get('id', None)  # rid None means it is a notification
-        print('processing request 1: %s' % str(request_obj))
         try:
-            print('processing request 2: %s' % str(request_obj))
             method = request_obj['method']
             if method in ('fetch', 'prefetch'):
                 '''Parameters: (url: string)
                 '''
-                print('processing request 3: %s' % str(request_obj))
+                logger.debug('processing request: %s' % str(request_obj))
                 r, r_text = yield from _fetch_one('get', request_obj['params'][0], config.FETCHER_TIMEOUT, proxy.get_connector())
-                print('finished request: %s r = %s' % (str(request_obj), str(r)))
+                logger.debug('finished request: %s' % (str(request_obj)))
                 if r is None:
                     return False
                 else:
@@ -142,7 +141,7 @@ class ProxyRegistry(object):
         df = dfs[0][['ip:port', 'country', 'proxy type', 'proxy status']]
         df_filtered = df[(df['proxy type'] == 'HTTP') & (df['proxy status'].str.contains('Elite proxy'))].drop_duplicates(subset=['ip:port'])
 
-        logging.info('checkerproxy: testing %d proxies out of %d parsed' % (len(df_filtered), len(df)))
+        logger.info('checkerproxy: testing %d proxies out of %d parsed' % (len(df_filtered), len(df)))
         for _, row in df_filtered.iterrows():
             ip, port = row['ip:port'].split(':')
             asyncio.async(self.register_proxy(Proxy(ip.strip(), port.strip(), row['country'], 'checkerproxy.net')))
@@ -152,17 +151,17 @@ class ProxyRegistry(object):
         last_page_indicator = ''  # keep track of port:ip of the first proxy. if it is the same as that of the page before, we must be at the last page.
         for page_num in range(1, 21):  # try until max of 20 pages
             dfs = yield from _request_and_read_html('http://letushide.com/filter/http,hap,all/%d/list_of_free_HTTP_High_Anonymity_proxy_servers' % page_num)
-            #logging.info(dfs[1])
+            #logger.info(dfs[1])
             df = dfs[1]
             page_indicator = '%s:%s' % (df.loc[0, 'host'], df.loc[0, 'port'])
             if last_page_indicator == page_indicator:
-                logging.debug('letushide terminates at page %d' % (page_num-1))
+                logger.debug('letushide terminates at page %d' % (page_num-1))
                 break
             last_page_indicator = page_indicator
-            logging.info('letushide: testing %d proxies coming from page %d' % (len(df), page_num))
+            logger.info('letushide: testing %d proxies coming from page %d' % (len(df), page_num))
             for _, row in df.iterrows():
                 asyncio.async(self.register_proxy(Proxy(row['host'], row['port'], None, 'letushide.com')))
-            #logging.debug('Finished inserting candidate proxies for letushide')
+            #logger.debug('Finished inserting candidate proxies for letushide')
 
 
 @asyncio.coroutine
