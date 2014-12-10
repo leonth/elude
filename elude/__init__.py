@@ -1,22 +1,21 @@
+import logging
 import asyncio
+import aiohttp
 
 try:
     import elude.config as config
 except ImportError:
     import elude.default_config as config
 
-_global_shutdown_event = asyncio.Event()
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger('asyncio').setLevel(logging.CRITICAL)  # tone down asyncio debug messages
 
 
 @asyncio.coroutine
-def wait_for_shutdown(timeout):
-    """Yields True if system is shutting down, False otherwise."""
+def fetch_one(method, url, timeout, connector=None):
     try:
-        yield from asyncio.wait_for(_global_shutdown_event.wait(), timeout)
-        return _global_shutdown_event.is_set()
-    except asyncio.TimeoutError:
-        return False
-
-
-def shutdown():
-    _global_shutdown_event.set()
+        r = yield from asyncio.wait_for(aiohttp.request(method, url, connector=connector), timeout)
+        text = yield from r.text()
+        return r, text
+    except (aiohttp.ConnectionError, aiohttp.ProxyConnectionError, aiohttp.HttpException, asyncio.TimeoutError, ValueError):
+        return None, None  # TODO retry attempts
