@@ -48,7 +48,7 @@ class BaseServer(object):
         Initial state: test if proxy is actually working. Yes: state = healthy, no = terminate usage of the proxy.
         Healthy state: perform fetches. If fetch timeouts or proxy is faulty: state = initial, yes = continue to process tasks.
         """
-        logger.debug('Registering new proxy %s' % proxy.id)
+        #logger.debug('Registering new proxy %s' % proxy.id)
         while True:
             # Unhealthy state
             with (yield from Proxy.test_semaphore):

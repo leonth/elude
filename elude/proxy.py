@@ -1,7 +1,7 @@
 import logging
+import re
 import asyncio
 import aiohttp
-from enum import Enum
 from pandas.io.html import read_html
 
 from elude import config
@@ -46,10 +46,15 @@ class ProxyGatherer(object):
         df = dfs[0][['ip:port', 'country', 'proxy type', 'proxy status']]
         df_filtered = df[(df['proxy type'] == 'HTTP') & (df['proxy status'].str.contains('Elite proxy'))].drop_duplicates(subset=['ip:port'])
 
-        logger.info('checkerproxy: testing %d proxies out of %d parsed' % (len(df_filtered), len(df)))
+        i = 0
         for _, row in df_filtered.iterrows():
-            ip, port = row['ip:port'].split(':')
-            self.register_proxy(Proxy(ip.strip(), port.strip(), row['country'], 'checkerproxy.net'))
+            m = re.match(r'([0-9.]+):([0-9]+)', row['ip:port'])
+            if m:
+                ip, port = m.group(1), m.group(2)
+                self.register_proxy(Proxy(ip.strip(), port.strip(), row['country'], 'checkerproxy.net'))
+                i += 1
+
+        logger.info('checkerproxy: gathered %d proxies out of %d parsed' % (i, len(df)))
 
     @asyncio.coroutine
     def _grab_proxies_from_letushide(self):
@@ -63,7 +68,7 @@ class ProxyGatherer(object):
                 logger.debug('letushide terminates at page %d' % (page_num-1))
                 break
             last_page_indicator = page_indicator
-            logger.info('letushide: testing %d proxies coming from page %d' % (len(df), page_num))
+            logger.info('letushide: gathered %d proxies coming from page %d' % (len(df), page_num))
             for _, row in df.iterrows():
                 self.register_proxy(Proxy(row['host'], row['port'], None, 'letushide.com'))
             #logger.debug('Finished inserting candidate proxies for letushide')
