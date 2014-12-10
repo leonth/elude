@@ -126,7 +126,7 @@ class ProxyRegistry(object):
 
     def process_response(self, response):
         """response is a dict with JSON-RPC Response object structure."""
-        print('responding with: %s' % str(response))
+        #logger.debug('responding with: %s' % str(response))
         for cb in self.result_callbacks:
             cb(response)
 
