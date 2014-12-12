@@ -1,6 +1,7 @@
 import logging
 import re
 import asyncio
+from functools import partial
 import aiohttp
 from pandas.io.html import read_html
 
@@ -86,5 +87,5 @@ def _request_and_read_html(url):
     # TODO cache this call
     r = yield from aiohttp.request('get', url)
     text = yield from r.text()
-    dfs = read_html(text)
+    dfs = yield from asyncio.get_event_loop().run_in_executor(None, partial(read_html, text))
     return dfs
