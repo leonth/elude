@@ -17,3 +17,11 @@ SERVER_WEBSOCKET_PORT = '7654'
 
 SERVER_ZEROMQ_ENABLE = True
 SERVER_ZEROMQ_BIND_ADDRESS = 'ipc:///tmp/python-elude'
+
+SERVER_REDIS_ENABLE = True
+SERVER_REDIS_HOST = 'localhost'
+SERVER_REDIS_PORT = 6379
+SERVER_REDIS_PASSWORD = None
+SERVER_REDIS_DB = 0
+SERVER_REDIS_REQUEST_KEY = 'elude:request'  # The key of the list in Redis to monitor for new tasks.
+SERVER_REDIS_RESPONSE_KEY_PREFIX = 'elude:result:'  # Responses are pushed in a list with this prefix + request ID.
