@@ -1,7 +1,7 @@
 elude
 =====
 
-**This is alpha quality software, use at you own risk.**
+**This is alpha quality software, use at your own risk.**
 
 [`elude`](https://github.com/leonth/elude) helps you download web pages quickly and anonymously for further processing e.g. scraping. The initial groundwork was inspired by [Elite Proxy Finder](https://github.com/DanMcInerney/elite-proxy-finder) project which attempted to find elite anonymous proxies. `elude` builds upon this idea to provide a daemon that automatically finds these proxies and uses them to perform requests. It uses the [`asyncio`](https://docs.python.org/3/library/asyncio.html) module extensively for handling concurrent connections.
 
