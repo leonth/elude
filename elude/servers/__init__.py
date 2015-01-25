@@ -2,6 +2,7 @@ import json
 from enum import Enum
 import asyncio
 import logging
+from cachetools import TTLCache
 from elude import config
 from elude import fetch_one
 from elude.proxy import Proxy
@@ -33,6 +34,8 @@ class BaseServer(object):
         self.serialize = serialize_func
         self.deserialize = deserialize_func
         self.proxy_gatherer = proxy_gatherer
+        self.ttl_cache = None
+        self.in_progress_rids = {}  # dict of url => set of result IDs
         # make a local copy of the configs
         self.config = dict((k, getattr(config, k)) for k in dir(config) if not k.startswith('__'))
         proxy_gatherer.new_proxy_callbacks.append(lambda proxy: asyncio.async(self.register_proxy(proxy)))
@@ -92,7 +95,7 @@ class BaseServer(object):
         try:
             method_name = '_process_request_%s' % request_obj.get('method', '')
             if hasattr(self, method_name):
-                retval = yield from getattr(self, method_name)(proxy, **request_obj['params'])
+                retval = yield from getattr(self, method_name)(proxy, id=rid, **request_obj['params'])
             else:
                 self.process_response({'id': rid, 'error': {'code': -32601, 'message': 'Method not found'}})
         except Exception as e:
@@ -109,23 +112,45 @@ class BaseServer(object):
         pass
 
     @asyncio.coroutine
-    def _process_request_fetch(self, proxy, rid=None, url=''):
-        logger.debug('processing request: rid = %s url=%s' % (str(rid), url))
-        r, r_text = yield from fetch_one('get', url, self.config['FETCHER_TIMEOUT'],
-                                         proxy.get_connector())
-        logger.debug('processing request: rid = %s url=%s' % (str(rid), url))
-        if r is None:
-            return False
-        else:
-            self.process_response({'id': rid, 'result': r_text})
+    def _process_request_fetch(self, proxy, id=None, url='', cache=None):
+        logger.debug('processing request: rid = %s url=%s' % (str(id), url))
+        cache = self.config['FETCH_REQUEST_CACHE'] if cache is None else cache
+        r, r_text = None, None
+        rids_in_progress_for_url = set([id])
+
+        # First check whether the result is already cached.
+        if self.ttl_cache and url in self.ttl_cache:
+            logger.debug('cache hit: %s' % url)
+            r_text = self.ttl_cache[url]
+            cache = False  # do not retrigger cache mechanism
+        # Then check if the request is in progress. If it is, let the other coroutine handle the response.
+        elif url in self.in_progress_rids:
+            logger.debug('merging request: %s' % url)
+            self.in_progress_rids[url].add(id)
             return True
+        # Perform the request if all the above fails.
+        else:
+            self.in_progress_rids[url] = rids_in_progress_for_url
+            r, r_text = yield from fetch_one('get', url, self.config['FETCH_REQUEST_TIMEOUT'], proxy.get_connector())
+            del self.in_progress_rids[url]
+            if r is None:
+                return False
+
+        for i in rids_in_progress_for_url:
+            self.process_response({'id': i, 'result': r_text})
+
+        if cache:
+            if self.ttl_cache is None:
+                self.ttl_cache = TTLCache(self.config['FETCH_REQUEST_CACHE_MAXSIZE'], self.config['FETCH_REQUEST_CACHE_TIMEOUT'], getsizeof=lambda x: len(x))
+            self.ttl_cache[url] = r_text  # TODO: cache more things
+        return True
 
     @asyncio.coroutine
-    def _process_request_prefetch(self, proxy, rid=None, url=''):
-        # Note difference between this and fetch is just the priority. Priority calculation is done at put_request().
-        return (yield from self._process_request_fetch(proxy, rid, url))
+    def _process_request_prefetch(self, proxy, id=None, url='', cache=None):
+        # Note difference between prefetch() and fetch() is just the priority AND it is always cached. Priority calculation is done at put_request().
+        return (yield from self._process_request_fetch(proxy, id, url, True))
 
     @asyncio.coroutine
-    def _process_request_update_config(self, proxy, config, rid=None):
+    def _process_request_update_config(self, proxy, config, id=None):
         self.config.update(config)  # TODO: validate input
         return True
