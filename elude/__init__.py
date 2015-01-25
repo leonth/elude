@@ -17,5 +17,5 @@ def fetch_one(method, url, timeout, connector=None):
         r = yield from asyncio.wait_for(aiohttp.request(method, url, connector=connector), timeout)
         text = yield from r.text()
         return r, text
-    except (aiohttp.ConnectionError, aiohttp.ProxyConnectionError, aiohttp.HttpException, asyncio.TimeoutError, ValueError):
+    except (aiohttp.ClientError, aiohttp.ProxyConnectionError, asyncio.TimeoutError, ValueError):
         return None, None  # TODO retry attempts
