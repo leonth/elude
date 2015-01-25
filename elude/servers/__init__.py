@@ -70,14 +70,14 @@ class BaseServer(object):
                 _, request_obj = yield from self.request_queue.get()
                 yield from asyncio.sleep(0)
                 logger.debug('received request: %s' % str(request_obj))
-                smooth_request = yield from self.execute_request(request_obj, proxy)
+                smooth_request = yield from self.process_request(request_obj, proxy)
                 if not smooth_request:
                     # This means that the proxy is somehow faulty. Return back the task to the queue and go back to unhealthy state.
                     self.put_request(request_obj, True)
                     break
 
     @asyncio.coroutine
-    def execute_request(self, request_obj, proxy):
+    def process_request(self, request_obj, proxy):
         """Executes task based on JSON-RPC 2.0 compatible request/response constructs.
         task_obj is a Request object dict.
         Calls or schedules calls to response callbacks (even for notifications - request id will be None in this case).
@@ -85,18 +85,9 @@ class BaseServer(object):
         See http://www.jsonrpc.org/specification for specs of the Request and Response objects."""
         rid = request_obj.get('id', None)  # rid None means it is a notification
         try:
-            method = request_obj['method']
-            if method in ('fetch', 'prefetch'):
-                '''Parameters: (url: string)
-                '''
-                logger.debug('processing request: %s' % str(request_obj))
-                r, r_text = yield from fetch_one('get', request_obj['params'][0], config.FETCHER_TIMEOUT,
-                                                 proxy.get_connector())
-                logger.debug('finished request: %s' % (str(request_obj)))
-                if r is None:
-                    return False
-                else:
-                    self.process_response({'id': rid, 'result': r_text})
+            method_name = '_process_request_%s' % request_obj.get('method', '')
+            if hasattr(self, method_name):
+                yield from getattr(self, method_name)(proxy, **request_obj['params'])
             else:
                 self.process_response({'id': rid, 'error': {'code': -32601, 'message': 'Method not found'}})
         except Exception as e:
@@ -111,3 +102,20 @@ class BaseServer(object):
         """response is a dict with JSON-RPC Response object structure.
         Override this method to process responses."""
         pass
+
+    @asyncio.coroutine
+    def _process_request_fetch(self, proxy, rid=None, url=''):
+        logger.debug('processing request: rid = %s url=%s' % (str(rid), url))
+        r, r_text = yield from fetch_one('get', url, config.FETCHER_TIMEOUT,
+                                         proxy.get_connector())
+        logger.debug('processing request: rid = %s url=%s' % (str(rid), url))
+        if r is None:
+            return False
+        else:
+            self.process_response({'id': rid, 'result': r_text})
+
+    @asyncio.coroutine
+    def _process_request_prefetch(self, proxy, rid=None, url=''):
+        # Note difference between this and fetch is just the priority. Priority calculation is done at put_request().
+        return (yield from self._process_request_fetch(proxy, rid, url))
+
