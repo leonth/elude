@@ -10,13 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 class TaskPriority(Enum):
-    """Priorities used in ProxyRegistry.task_queue. """
-    failing_fetch = -3
-    failing_prefetch = -2
-    failing_neutral = -1
-    neutral = 0
-    fetch = 1
-    prefetch = 2
+    """Priorities used in ProxyRegistry.task_queue. (Byte-to-byte comparison will be used)"""
+    failing_fetch = 'a'
+    failing_prefetch = 'b'
+    failing_neutral = 'c'
+    neutral = 'd'
+    fetch = 'e'
+    prefetch = 'f'
 
     @classmethod
     def get_from_method_name(cls, method_name, failing=False):
@@ -37,8 +37,10 @@ class BaseServer(object):
 
     def put_request(self, request_obj, failing=False):
         """Puts a request object in the queue for further processing."""
+        # asyncio.PriorityQueue() can't accept items with same priority (it will try to compare the request_obj instead of the priority). Therefore we make the priority unique.
+        priority = '%s%d' % (TaskPriority.get_from_method_name(request_obj.get('method', ''), failing).value, id(request_obj))
         self.request_queue.put_nowait((
-            TaskPriority.get_from_method_name(request_obj.get('method', ''), failing).value,
+            priority,
             request_obj
         ))
 
@@ -68,7 +70,7 @@ class BaseServer(object):
             while True:
                 yield from asyncio.sleep(0)
                 _, request_obj = yield from self.request_queue.get()
-                yield from asyncio.sleep(0)
+                #yield from asyncio.sleep(0)
                 logger.debug('received request: %s' % str(request_obj))
                 smooth_request = yield from self.process_request(request_obj, proxy)
                 if not smooth_request:
