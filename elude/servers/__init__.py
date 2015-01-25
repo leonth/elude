@@ -33,6 +33,8 @@ class BaseServer(object):
         self.serialize = serialize_func
         self.deserialize = deserialize_func
         self.proxy_gatherer = proxy_gatherer
+        # make a local copy of the configs
+        self.config = dict((k, getattr(config, k)) for k in dir(config) if not k.startswith('__'))
         proxy_gatherer.new_proxy_callbacks.append(lambda proxy: asyncio.async(self.register_proxy(proxy)))
 
     def put_request(self, request_obj, failing=False):
@@ -54,7 +56,7 @@ class BaseServer(object):
         while True:
             # Unhealthy state
             with (yield from Proxy.test_semaphore):
-                r, r_text = yield from fetch_one('get', 'http://myexternalip.com/json', config.PROXY_TEST_TIMEOUT,
+                r, r_text = yield from fetch_one('get', 'http://myexternalip.com/json', self.config['PROXY_TEST_TIMEOUT'],
                                                  proxy.get_connector())
                 if r is None:
                     break  # Terminate usage of the proxy.
@@ -74,7 +76,7 @@ class BaseServer(object):
                 logger.debug('received request: %s' % str(request_obj))
                 smooth_request = yield from self.process_request(request_obj, proxy)
                 if not smooth_request:
-                    # This means that the proxy is somehow faulty. Return back the task to the queue and go back to unhealthy state.
+                    # This means that a retry is warranted (e.g. the proxy is somehow faulty). Return back the task to the queue and go back to unhealthy state.
                     self.put_request(request_obj, True)
                     break
 
@@ -83,13 +85,14 @@ class BaseServer(object):
         """Executes task based on JSON-RPC 2.0 compatible request/response constructs.
         task_obj is a Request object dict.
         Calls or schedules calls to response callbacks (even for notifications - request id will be None in this case).
-        Returns False if error is suspected due to proxy, True otherwise.
+        Returns False if a retry is warranted, True otherwise.
         See http://www.jsonrpc.org/specification for specs of the Request and Response objects."""
         rid = request_obj.get('id', None)  # rid None means it is a notification
+        retval = True
         try:
             method_name = '_process_request_%s' % request_obj.get('method', '')
             if hasattr(self, method_name):
-                yield from getattr(self, method_name)(proxy, **request_obj['params'])
+                retval = yield from getattr(self, method_name)(proxy, **request_obj['params'])
             else:
                 self.process_response({'id': rid, 'error': {'code': -32601, 'message': 'Method not found'}})
         except Exception as e:
@@ -98,7 +101,7 @@ class BaseServer(object):
             traceback.print_exc()
             self.process_response(
                 {'id': rid, 'error': {'code': -32000, 'message': '%s: %s' % (type(e).__name__, str(e))}})
-        return True
+        return retval
 
     def process_response(self, response):
         """response is a dict with JSON-RPC Response object structure.
@@ -108,16 +111,21 @@ class BaseServer(object):
     @asyncio.coroutine
     def _process_request_fetch(self, proxy, rid=None, url=''):
         logger.debug('processing request: rid = %s url=%s' % (str(rid), url))
-        r, r_text = yield from fetch_one('get', url, config.FETCHER_TIMEOUT,
+        r, r_text = yield from fetch_one('get', url, self.config['FETCHER_TIMEOUT'],
                                          proxy.get_connector())
         logger.debug('processing request: rid = %s url=%s' % (str(rid), url))
         if r is None:
             return False
         else:
             self.process_response({'id': rid, 'result': r_text})
+            return True
 
     @asyncio.coroutine
     def _process_request_prefetch(self, proxy, rid=None, url=''):
         # Note difference between this and fetch is just the priority. Priority calculation is done at put_request().
         return (yield from self._process_request_fetch(proxy, rid, url))
 
+    @asyncio.coroutine
+    def _process_request_update_config(self, proxy, config, rid=None):
+        self.config.update(config)  # TODO: validate input
+        return True
